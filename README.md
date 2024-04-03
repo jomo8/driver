@@ -18,6 +18,7 @@
 9) figure out how to enable brownout detector. Write code to autosave last shaft position at brownout.
 
 stretch goals:
+
 10) build a fuzzy logic controller.
 
 
