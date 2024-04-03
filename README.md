@@ -17,8 +17,11 @@
 
 9) figure out how to enable brownout detector. Write code to autosave last shaft position at brownout.
 
-stretch goals:
+10) Configure ADC's to measure hbridge currents and send current data over uart or i2c to the master device.
 
-10) build a fuzzy logic controller.
+11) add votage measurement unit to the board. use an ADC pin to measure power supply voltage and send the readings to master over uart and i2c.
+
+stretch goal:
+A) build a fuzzy logic controller.
 
 
