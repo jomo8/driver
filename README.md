@@ -1,7 +1,7 @@
 # TODO
 1) Clean the code, add some comments.
 
-2) Develop uart write and read fubctions using ring buffer.
+2) Develop uart write and read functions using ring buffer.
 
 3) Configure i2c communication read and write functions. use a second ring buffer.
 
