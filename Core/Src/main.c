@@ -5,7 +5,9 @@
  ******************************************************************************
 */
 
-
+// TODO: 
+//      complete save_to_flash and read_from_flash functions.
+//      complete ring buffer functions. when data structure is full, begin overwriting circularly.
 
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
@@ -58,7 +60,8 @@ static void SendI2CMessage(uint16_t DevAddress, uint8_t * pData, uint16_t Size);
 static void motorPIDA_update(uint64_t *new_pos);
 static void motorPIDB_update(uint64_t *new_pos);
 
-static void save_to_flash(uint16_t data);
+static void save_to_flash();
+static uint64_t read_from_flash(void);
 
 static void GenerateSineWaveData();
 static void SendI2CMessage(uint16_t DevAddress, uint8_t * pData, uint16_t Size);
@@ -88,9 +91,9 @@ void motorB_update_position(uint64_t new_pos) { motorPIDB_update(&new_pos); }
  * 
  * NOTE: function NOT yet tested
 */
-void save_to_flash(uint16_t data) {
+void save_to_flash() 
+{
   uint32_t addr = DATA_STORAGE_START_ADDRESS;
-
   HAL_FLASH_Unlock();
 
   // Define erase type
@@ -104,15 +107,25 @@ void save_to_flash(uint16_t data) {
 
   // Erase the specified FLASH page
   if (HAL_FLASHEx_Erase( & EraseInitStruct, & PageError) != HAL_OK) {
-    // TODO: Handle error
+    // Handle error
+    HAL_FLASH_Lock();
+    return;
   }
 
+
   // Program the user Flash area half-word by half-word
-  if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_FAST, addr, (uint64_t) data) != HAL_OK) {
-    // TODO: Handle error
+  if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_FAST, addr, motorA_pos) != HAL_OK) {
+    // Handle error
+    HAL_FLASH_Lock();
+    return;
   }
 
   HAL_FLASH_Lock();
+}
+
+uint64_t read_from_flash(void) {
+    uint32_t addr = DATA_STORAGE_START_ADDRESS;
+    return *(volatile uint64_t*)addr;
 }
 
 
