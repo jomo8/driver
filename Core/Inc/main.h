@@ -1,24 +1,3 @@
-/* USER CODE BEGIN Header */
-/**
-  ******************************************************************************
-  * @file           : main.h
-  * @brief          : Header for main.c file.
-  *                   This file contains the common defines of the application.
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2024 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
-/* USER CODE END Header */
-
-/* Define to prevent recursive inclusion -------------------------------------*/
 #ifndef __MAIN_H
 #define __MAIN_H
 
@@ -26,43 +5,44 @@
 extern "C" {
 #endif
 
+
+/**
+  ******************************************************************************
+  * @file           : main.h
+  * @brief          : Header for main.c file.
+  *                   This file contains the public defines of the application.
+*/
+
+// MADE FOR chip model: stm32c011f4p
+
+
 /* Includes ------------------------------------------------------------------*/
-#include "stm32c0xx_hal.h"
+#include "stm32c0xx_hal.h"      // included by default
+#include <stdint.h>
 
-/* Private includes ----------------------------------------------------------*/
-/* USER CODE BEGIN Includes */
 
-/* USER CODE END Includes */
 
-/* Exported types ------------------------------------------------------------*/
-/* USER CODE BEGIN ET */
 
-/* USER CODE END ET */
-
-/* Exported constants --------------------------------------------------------*/
-/* USER CODE BEGIN EC */
-
-/* USER CODE END EC */
-
-/* Exported macro ------------------------------------------------------------*/
-/* USER CODE BEGIN EM */
-
-/* USER CODE END EM */
+/* Public function prototypes -----------------------------------------------*/
+void SystemClock_Config();
 
 void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
+void Error_Handler();
 
-/* Exported functions prototypes ---------------------------------------------*/
-void Error_Handler(void);
+// position fetchers
+uint64_t motorA_current_position(void);
+uint64_t motorB_current_position(void);
 
-/* USER CODE BEGIN EFP */
+// position updaters
+void motorA_update_position(uint64_t new_pos);
+void motorB_update_position(uint64_t new_pos);
 
-/* USER CODE END EFP */
 
-/* Private defines -----------------------------------------------------------*/
 
-/* USER CODE BEGIN Private defines */
 
-/* USER CODE END Private defines */
+
+
+
 
 #ifdef __cplusplus
 }

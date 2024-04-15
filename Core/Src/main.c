@@ -1,208 +1,180 @@
-/* USER CODE BEGIN Header */
-/**
+/*
  ******************************************************************************
  * @file           : main.c
  * @brief          : Main program body
  ******************************************************************************
- * @attention
- *
- * Copyright (c) 2024 STMicroelectronics.
- * All rights reserved.
- *
- * This software is licensed under terms that can be found in the LICENSE file
- * in the root directory of this software component.
- * If no LICENSE file comes with this software, it is provided AS-IS.
- *
- ******************************************************************************
- */
-/* USER CODE END Header */
+*/
+
+
+
 /* Includes ------------------------------------------------------------------*/
-
-//not needed here
-#define USE_HAL_UART_REGISTER_CALLBACKS 1
-
-#include "ringbuffer.h"
 #include "main.h"
-#include <stdint.h>
 #include <stdio.h>
+#include "ringbuffer.h"
+#include <stdarg.h>
 
-/* Private includes ----------------------------------------------------------*/
-/* USER CODE BEGIN Includes */
 
-/* USER CODE END Includes */
-
-/* Private typedef -----------------------------------------------------------*/
-/* USER CODE BEGIN PTD */
-
-/* USER CODE END PTD */
-
-/* Private define ------------------------------------------------------------*/
-/* USER CODE BEGIN PD */
-
-/* USER CODE END PD */
-
-/* Private macro -------------------------------------------------------------*/
-/* USER CODE BEGIN PM */
-
-/* USER CODE END PM */
-
-/* Private variables ---------------------------------------------------------*/
+/* ---------------------------- Private stuff --------------------------------*/
+/* variables ---------------------------------------------------------*/
 
 I2C_HandleTypeDef hi2c1;
-
 TIM_HandleTypeDef htim1;
-
 UART_HandleTypeDef huart2;
 
-/* USER CODE BEGIN PV */
+int64_t motorA_pos = 0;
+int64_t motorB_pos = 0;
 
-/* USER CODE END PV */
+GPIO_PinState pinA0_prev = GPIO_PIN_RESET;
+GPIO_PinState pinA1_prev = GPIO_PIN_RESET;
+GPIO_PinState pinA0_new = GPIO_PIN_RESET;
+GPIO_PinState pinA1_new = GPIO_PIN_RESET;
 
-/* Private function prototypes -----------------------------------------------*/
-void SystemClock_Config(void);
-static void MX_GPIO_Init(void);
-static void MX_I2C1_Init(void);
-static void MX_TIM1_Init(void);
-static void MX_USART2_UART_Init(void);
-/* USER CODE BEGIN PFP */
+GPIO_PinState pinB0_prev = GPIO_PIN_RESET;
+GPIO_PinState pinB1_prev = GPIO_PIN_RESET;
+GPIO_PinState pinB0_new = GPIO_PIN_RESET;
+GPIO_PinState pinB1_new = GPIO_PIN_RESET;
 
-/* Private function prototypes -----------------------------------------------*/
-void SystemClock_Config(void);
-static void MX_GPIO_Init(void);
-static void MX_I2C1_Init(void);
-static void MX_TIM1_Init(void);
-static void MX_USART2_UART_Init(void);
-
-void GenerateSineWaveData(void);
-void SendI2CMessage(uint16_t DevAddress, uint8_t * pData, uint16_t Size);
-
-/* USER CODE END PFP */
-
-/* Private user code ---------------------------------------------------------*/
-/* USER CODE BEGIN 0 */
-
-//chip model: stm32c011f4p
-
-TIM_HandleTypeDef htim1;
+/* defines -----------------------------------------------------------*/
+#define USE_HAL_UART_REGISTER_CALLBACKS 1
 #define SINE_WAVE_RES 360 // Resolution of sine wave table
 #define SINE_WAVE_FREQ 1 // Frequency of sine wave
-uint32_t sine_wave_data[SINE_WAVE_RES];
-
-void GenerateSineWaveData(void);
-void SendI2CMessage(uint16_t DevAddress, uint8_t * pData, uint16_t Size);
-
-
-
-
-
-
-
-
-
-
-
-/* USER CODE END PFP */
 #define DATA_STORAGE_START_ADDRESS 0x08002000 // Adjust as needed
 
-void SaveToFlash(uint16_t data) {
-  uint32_t Address = DATA_STORAGE_START_ADDRESS;
+#define MOTORA_ENCODERPIN_0 4096
+#define MOTORA_ENCODERPIN_1 8192
+#define MOTORB_ENCODERPIN_0 16384
+#define MOTORB_ENCODERPIN_1 64
 
-  // Unlock the Flash
+
+/* functions ---------------------------------------------------------*/
+static void MX_GPIO_Init();
+static void MX_I2C1_Init();
+static void MX_TIM1_Init();
+static void MX_USART2_UART_Init();
+
+static void GenerateSineWaveData();
+static void SendI2CMessage(uint16_t DevAddress, uint8_t * pData, uint16_t Size);
+
+static void motorPIDA_update(uint64_t *new_pos);
+static void motorPIDB_update(uint64_t *new_pos);
+
+static void save_to_flash(uint16_t data);
+
+static void GenerateSineWaveData();
+static void SendI2CMessage(uint16_t DevAddress, uint8_t * pData, uint16_t Size);
+static uint32_t sine_wave_data[SINE_WAVE_RES];
+/* ---------------------------------------------------------------------------*/
+
+
+/* ----------------------- Public function definitions -----------------------*/
+// position fetchers
+uint64_t motorA_current_position(void) { return motorA_pos; }
+uint64_t motorB_current_position(void) { return motorB_pos; }
+
+// position updaters
+void motorA_update_position(uint64_t new_pos) { motorPIDA_update(&new_pos); }
+void motorB_update_position(uint64_t new_pos) { motorPIDB_update(&new_pos); }
+
+
+/* ---------------------- Private function definitions -----------------------*/
+
+/* 
+ * save_to_flash
+ *
+ * Purpose: Save input data to FLASH memory on MSU
+ * 
+ * Parameters: 
+ *      uint16_t data: data to be saved
+ * 
+ * NOTE: function NOT yet tested
+*/
+void save_to_flash(uint16_t data) {
+  uint32_t addr = DATA_STORAGE_START_ADDRESS;
+
   HAL_FLASH_Unlock();
 
-  // Define the type for erase (Page Erase)
+  // Define erase type
   FLASH_EraseInitTypeDef EraseInitStruct;
   uint32_t PageError = 0;
 
-  // Fill EraseInitStruct structure
+  // Fill EraseInitStruct struct
   EraseInitStruct.TypeErase = FLASH_TYPEERASE_PAGES;
   EraseInitStruct.Page = 9;
   EraseInitStruct.NbPages = 1; // Number of pages to be erased
 
   // Erase the specified FLASH page
   if (HAL_FLASHEx_Erase( & EraseInitStruct, & PageError) != HAL_OK) {
-    // Handle error
+    // TODO: Handle error
   }
 
   // Program the user Flash area half-word by half-word
-  if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_FAST, Address, (uint64_t) data) != HAL_OK) {
-    // Handle error
-
+  if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_FAST, addr, (uint64_t) data) != HAL_OK) {
+    // TODO: Handle error
   }
 
-  // Lock the Flash
   HAL_FLASH_Lock();
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 /* Create and initialize ring buffer */
 ring_buffer_t ring_buffer;
 char buf_arr[128];
 
-
-
-
-
 uint8_t rxBuffer[100];
 
 uint8_t Rx_byte;
 uint8_t Rx_data[10];
 uint8_t index = 0;
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+
+
+/*
+ * HAL_UART_RxCpltCallback
+ *
+ * Purpose: Callback function for to receive bytes from master device
+ * 
+ * Parameters: 
+ *      UART_HandleTypeDef *huart: a UART handler
+ * 
+ * NOTE: This function does not work. need to fix ring buffer and define Rx_data.
+*/
+void HAL_UART_RxCpltCallback (UART_HandleTypeDef *huart)
 {
-//  Rx_data[index] = Rx_byte;
-//  index = (index + 1)%10;
+  //  Rx_data[index] = Rx_byte;
+  //  index = (index + 1)%10;
   //char *textt = "HAL_UART_RxCpltCallback!!\n";
+  //writeCyclicBuffer(&Rx_data, 1);
 
-    //writeCyclicBuffer(&Rx_data, 1);
-    ring_buffer_queue(&ring_buffer, Rx_data);
-    ring_buffer_dequeue(&ring_buffer, &Rx_data);
-    UART_SendString(Rx_data);
+  ring_buffer_queue(&ring_buffer, Rx_data);
+  ring_buffer_dequeue(&ring_buffer, &Rx_data);
+  UART_SendString(Rx_data);
 
-    HAL_UART_Receive_IT(&huart2, &Rx_data, 1); // Now receive the message
-
-}
-
-void UART_SendString(char * string) {
-  HAL_UART_Transmit( & huart2, (uint8_t * ) string, strlen(string), 1000);
-  //HAL_StatusTypeDef HAL_UART_Transmit_IT(UART_HandleTypeDef *huart, const uint8_t *pData, uint16_t Size)
+  HAL_UART_Receive_IT(&huart2, &Rx_data, 1); // Now receive the message
 }
 
 
-void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
+/*
+ * UART_SendString
+ *
+ * Purpose: Sends a string to the master device
+ * 
+ * Parameters: 
+ *      char *string: a string to be sent
+*/
+void UART_SendString (char * string) {
+  HAL_UART_Transmit(&huart2, (uint8_t *) string, strlen(string), 1000);
+}
+
+
+/*
+ * HAL_UARTEx_RxEventCallback
+ *
+ * Purpose: 
+ * 
+ * Parameters: 
+ *      UART_HandleTypeDef *huart: a UART handler
+ *      uint16_t Size: size of the data received
+*/
+void HAL_UARTEx_RxEventCallback (UART_HandleTypeDef * huart, uint16_t Size)
 {
   //HAL_UART_Receive(&huart2, rxBuffer, Size, 1000);
   //HAL_UART_Transmit(&huart2, rxBuffer, 20, 1000);
@@ -211,84 +183,36 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 
 }
 
-
-
-/*
-// ISR for brownout
-void PWR_IRQHandler(void) {
-    if (__HAL_RCC_GET_FLAG(RCC_FLAG_PWRRST))
-    {
-        // Clear the BOR flag
-        __HAL_RCC_CLEAR_RESET_FLAGS();
-
-        SaveToFlash(1234);
-
-        // Optionally, reset the microcontroller
-        NVIC_SystemReset();
-    }
-}
-
-
-void EnableBORInterrupt(void) {
-    // Enable the PWR clock
-    __HAL_RCC_PWR_CLK_ENABLE();
-
-    // Enable the BOR interrupt
-    HAL_PWR_EnableBkUpAccess();
-    __HAL_PWR_BOR_ENABLE_IT();
-}
-
-// Example function to set BOR level
-void SetBORLevel(void) {
-    HAL_FLASH_Unlock();
-    FLASH_OBProgramInitTypeDef obConfig;
-
-    HAL_FLASHEx_OBGetConfig(&obConfig);
-    //obConfig.OptionType = OPTIONBYTE_BOR;
-
-    // Set the BOR Level to a desired value (e.g., OB_BOR_LEVEL1, OB_BOR_LEVEL2, etc.)
-    obConfig.USERConfig = OB_BOR_ENABLE | OB_BOR_LEVEL_FALLING_3 | OB_BOR_LEVEL_RISING_3;
-
-
-    HAL_FLASHEx_OBProgram(&obConfig);
-    HAL_FLASH_Lock();
-
-    // Perform a system reset to apply the new BOR level
-    NVIC_SystemReset();
-}
-*/
-
+// absolute value function
 double abs_(double a) {
   if (a < 0.0)
     return -a;
   return a;
 }
 
+
 /*
-float sin(float x) {
-  const double pi = 3.14159265358;
-  const float B = 4 / pi;
-  const float C = -4 / (pi * pi);
-
-  float y = B * x + C * x * abs_(x);
-
-  #ifdef EXTRA_PRECISION
-  //  const float Q = 0.775;
-  const float P = 0.225;
-
-  y = P * (y * abs_(y) - y) + y; // Q * y + P * y * abs_(y)
-  #endif
-}*/
-
-/* Private user code ---------------------------------------------------------*/
-/* USER CODE BEGIN 0 */
-void GenerateSineWaveData(void) {
+ * GenerateSineWaveData
+ *
+ * Purpose: 
+ * 
+*/
+void GenerateSineWaveData () {
   for (int i = 0; i < SINE_WAVE_RES; i++) {
     // Generate sine wave data from 0 to TIM_Period
     sine_wave_data[i] = (htim1.Init.Period / 2) * (1 + sin(2 * (3.14159265358979323846) * i / SINE_WAVE_RES));
   }
 }
 
+
+/*
+ * UpdatePWMDutyCycle 
+ *
+ * Purpose: 
+ * 
+ * Parameters:
+ *       
+*/
 void UpdatePWMDutyCycle(uint32_t channel, uint32_t value) {
   TIM_OC_InitTypeDef sConfigOC = {
     0
@@ -312,11 +236,17 @@ void UpdatePWMDutyCycle(uint32_t channel, uint32_t value) {
 //}
 //}
 
-/* USER CODE END 0 */
 
-#include <stdarg.h>
 
-// Variadic function to send formatted strings via UART
+/*
+ * UART_SendFormattedString 
+ *
+ * Purpose:
+ *      Variadic function to send formatted strings via UART
+ * 
+ * Parameters:
+ *      const char *format: format of the string
+*/
 void UART_SendFormattedString(const char* format, ...) {
     char buffer[128]; // Buffer for the formatted string
     va_list args;     // Initialize the argument list
@@ -334,33 +264,20 @@ void UART_SendFormattedString(const char* format, ...) {
 
 
 
-void motorPIDA_update();
-void motorPIDB_update();
+
 /**
   * @brief  The application entry point.
   * @retval int
   */
 int main(void)
 {
-  /* USER CODE BEGIN 1 */
-
-  /* USER CODE END 1 */
-
-  /* MCU Configuration--------------------------------------------------------*/
-
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
 
-  /* USER CODE BEGIN Init */
-
-  /* USER CODE END Init */
 
   /* Configure the system clock */
   SystemClock_Config();
 
-  /* USER CODE BEGIN SysInit */
-
-  /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
@@ -384,12 +301,12 @@ int main(void)
 
 
   while (1) {
-  motorPIDA_update();
-  motorPIDB_update();
+  motorPIDA_update(NULL);
+  motorPIDB_update(NULL);
 
-  HAL_Delay(100); // Delay for sine wave frequency timing
-  char *textt = "Second!!\n";
-  UART_SendString(textt);
+  //HAL_Delay(100); // Delay for sine wave frequency timing
+ // char *textt = "Second!!\n";
+  //UART_SendString(textt);
 
   //    uint8_t data;
 //      UART_SendString("save received");
@@ -423,7 +340,7 @@ int main(void)
     UpdatePWMDutyCycle(TIM_CHANNEL_4, pwm_value2);
 
     */
-
+    
     // Generate sine wave on all available PWM channels
 
 /*    UpdatePWMDutyCycle(TIM_CHANNEL_1, pwm_value1);
@@ -449,11 +366,8 @@ int main(void)
     //     uint8_t data[] = {0xAA, 0xBB, 0xCC}; // Example data
     //   SendI2CMessage(0x48 << 1, data, sizeof(data)); // Replace 0x48 with your device's address
 
-    /* USER CODE END WHILE */
 
-    /* USER CODE BEGIN 3 */
   }
-  /* USER CODE END 3 */
 }
 
 /**
@@ -492,7 +406,6 @@ void SystemClock_Config(void)
   }
 }
 
-volatile char *a = "1000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000100000000000000000000000000000001000000000000000000000000000000010000000000000000000000000000000";
 
 /**
   * @brief I2C1 Initialization Function
@@ -501,7 +414,7 @@ volatile char *a = "100000000000000000000000000000001000000000000000000000000000
   */
 static void MX_I2C1_Init(void)
 {
-a[0];
+// a[0]; ????????
   /* USER CODE BEGIN I2C1_Init 0 */
 
   /* USER CODE END I2C1_Init 0 */
@@ -813,18 +726,7 @@ void print_signed_number(int64_t to_print)
 */
 
 
-int64_t motorA_pos = 0;
-int64_t motorB_pos = 0;
 
-GPIO_PinState pinA0_prev = GPIO_PIN_RESET;
-GPIO_PinState pinA1_prev = GPIO_PIN_RESET;
-GPIO_PinState pinA0_new = GPIO_PIN_RESET;
-GPIO_PinState pinA1_new = GPIO_PIN_RESET;
-
-GPIO_PinState pinB0_prev = GPIO_PIN_RESET;
-GPIO_PinState pinB1_prev = GPIO_PIN_RESET;
-GPIO_PinState pinB0_new = GPIO_PIN_RESET;
-GPIO_PinState pinB1_new = GPIO_PIN_RESET;
 
 //void motor_encoderUpdate(int64_t *pos, GPIO_PinState pin0_prev, GPIO_PinState pin1_prev, GPIO_PinState pin0_new, GPIO_PinState pin1_new,uint16_t GPIO_Pin)
 //{
@@ -863,18 +765,16 @@ GPIO_PinState pinB1_new = GPIO_PIN_RESET;
 //
 //}
 
-/*************** motor_encoderUpdate **************
+/* motor_encoderUpdate 
  *
  * Updates motor position based on current and previous encoder states
- *
+ * 
  * Inputs:
  *       uint64_t *pos: encoder output of the motor
- *
- * Return: None
- *
+ * 
  * Expects
  *      pos to be a binary representation of the pin states.
- ***********************************************/
+*/
 void motor_encoderUpdate2(int64_t *pos, GPIO_PinState pin0_prev, GPIO_PinState pin1_prev, GPIO_PinState pin0_new, GPIO_PinState pin1_new, uint16_t GPIO_Pin)
 {
     uint32_t state = (pin0_prev << 3) | (pin1_prev << 2) | (pin0_new << 1) | pin1_new;
@@ -915,13 +815,9 @@ void motor_encoderUpdate2(int64_t *pos, GPIO_PinState pin0_prev, GPIO_PinState p
 
 }
 
-#define MOTORA_ENCODERPIN_0 4096
-#define MOTORA_ENCODERPIN_1 8192
-#define MOTORB_ENCODERPIN_0 16384
-#define MOTORB_ENCODERPIN_1 64
 
-//int64_t motorA_pos = 0;
-//int64_t motorB_pos = 0;
+
+
 void HAL_GPIO_EXTI_Rising_Callback(uint16_t GPIO_Pin)
 {
     // Update previous state
@@ -978,26 +874,18 @@ void HAL_GPIO_EXTI_Falling_Callback(uint16_t GPIO_Pin)
     }
 }
 
-//int64_t motorA_pos = 0;
-//int64_t motorB_pos = 0;
 
-
-/*************** motorPID_update **************
+/* motorPID_update
  *
  * Updates motor PID values. Updates motor movement with calculated voltage
- *
- * Inputs:
- *       None
- *
- * Return: None
- *
+ * 
  * Expects
  *      pos to be a binary representation of the pin states.
- ***********************************************/
-
-void motorPIDA_update()
+*/
+void motorPIDA_update(uint64_t *new_pos)
 {
   float Kp, Ki = 0, Kd = 0;
+ 
   // Setting the proportional gain
   Kp = -0.01;
 
@@ -1005,7 +893,11 @@ void motorPIDA_update()
   int64_t tar_pos = 0;
   int64_t curr_pos; // Use later to generalize motors
 
-  // Calculating error
+  if (new_pos != NULL) {
+    tar_pos = *new_pos;
+  }
+
+  // Calculating error 
   double error = motorA_pos - tar_pos;
   float integral = 0; // TODO implement later
   float derivative = 0; // TODO implement later
@@ -1014,10 +906,10 @@ void motorPIDA_update()
   // PID formula
   double output = (Kp * error) + (Ki * integral) + (Kd * derivative);
 
-  output = output*(htim1.Init.Period);
+  output *= htim1.Init.Period;
 
   uint32_t motor_volts = abs_(output);
-
+  
   if (motor_volts > htim1.Init.Period) {
     motor_volts = htim1.Init.Period;
   }
@@ -1026,7 +918,7 @@ void motorPIDA_update()
   if (output > 0) {
     UpdatePWMDutyCycle(TIM_CHANNEL_3, motor_volts);
     UpdatePWMDutyCycle(TIM_CHANNEL_4, 0);
-
+    
   } else if (output < 0) {
     UpdatePWMDutyCycle(TIM_CHANNEL_3, 0);
     UpdatePWMDutyCycle(TIM_CHANNEL_4, motor_volts);
@@ -1034,7 +926,7 @@ void motorPIDA_update()
 }
 
 
-void motorPIDB_update()
+void motorPIDB_update(uint64_t *new_pos)
 {
   float Kp, Ki = 0, Kd = 0;
   // Setting the proportional gain
@@ -1043,6 +935,10 @@ void motorPIDB_update()
   // Setting the position variables.
   int64_t tar_pos = 0;
   int64_t curr_pos; // Use later to generalize motors
+
+  if (new_pos != NULL) {
+    tar_pos = *new_pos;
+  }
 
   // Calculating error
   double error = motorB_pos - tar_pos;
@@ -1053,7 +949,7 @@ void motorPIDB_update()
   // PID formula
   double output = (Kp * error) + (Ki * integral) + (Kd * derivative);
 
-  output = output*(htim1.Init.Period);
+  output *= htim1.Init.Period;
 
   uint32_t motor_volts = abs_(output);
 
@@ -1085,7 +981,6 @@ void motorPIDB_update()
 
 
 
-/* USER CODE END 4 */
 
 /**
   * @brief  This function is executed in case of error occurrence.
